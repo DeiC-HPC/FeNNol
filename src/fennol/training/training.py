@@ -291,7 +291,7 @@ def train(
             return x.astype(fprec)
         return x
 
-    model.variables = jax.tree_map(convert_to_fprec, model.variables)
+    model.variables = jax.tree_util.tree_map(convert_to_fprec, model.variables)
 
     ### SET UP LOSS FUNCTION ###
     loss_definition, used_keys, ref_keys = get_loss_definition(
