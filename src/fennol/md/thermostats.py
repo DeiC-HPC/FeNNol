@@ -21,6 +21,7 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
     state = {}
     postprocess = None
     
+    default_ekin_instant = "B"
 
     thermostat_name = str(simulation_parameters.get("thermostat", "LGV")).upper()
     """@keyword[fennol_md] thermostat
@@ -43,6 +44,8 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
     Friction coefficient for Langevin thermostat.
     Default: 1.0 ps^-1
     """
+    if gamma <= 0.0:
+        gamma = 0.0
     species = system_data["species"]
 
     if nbeads is not None:
@@ -54,6 +57,9 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
         gamma = np.maximum(trpmd_lambda * system_data["omk"], gamma)
 
     if thermostat_name in ["LGV", "LANGEVIN", "FFLGV"]:
+        default_ekin_instant = "O"
+        if gamma <= 1.e-5:
+            default_ekin_instant = "B"
         assert rng_key is not None, "rng_key must be provided for QTB thermostat"
         assert kT is not None, "kT must be specified for QTB thermostat"
         assert gamma is not None, "gamma must be specified for QTB thermostat"
@@ -224,6 +230,7 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
             return vel, new_state
 
     elif thermostat_name in ["QTB", "ADQTB"]:
+        default_ekin_instant = "O"
         assert nbeads is None, "QTB is not compatible with PIMD"
         assert rng_key is not None, "rng_key must be provided for QTB thermostat"
         assert kT is not None, "kT must be specified for QTB thermostat"
@@ -348,7 +355,15 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
     else:
         raise ValueError(f"Unknown thermostat {thermostat_name}")
 
-    return thermostat, postprocess, state, vel,thermostat_name
+    ekin_instant = str(simulation_parameters.get("ekin_instant", default_ekin_instant)).upper()
+    """@keyword[fennol_md] ekin_instant
+    Where in the time step to compute the instantaneous kinetic energy. 
+    Options: 'B' (end of step), 'O' (after thermostat).
+    Default: 'O' for LGV and QTB thermostats, 'B' otherwise.
+    """
+    assert ekin_instant in ["B", "O"], "ekin_instant must be 'B' or 'O'"
+
+    return thermostat, postprocess, state, vel,thermostat_name, ekin_instant
 
 
 def initialize_qtb(

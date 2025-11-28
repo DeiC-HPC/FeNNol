@@ -123,11 +123,14 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
         thermostat_state,
         initial_vel,
         dyn_state["thermostat_name"],
+        ekin_instant,
     ) = get_thermostat(simulation_parameters, dt, system_data, fprec, thermostat_rng,restart_data)
     do_thermostat_post = thermostat_post is not None
     if do_thermostat_post:
         thermostat_post, post_state = thermostat_post
         dyn_state["thermostat_post_state"] = post_state
+
+    assert ekin_instant in ["B", "O"], "ekin_instant must be 'B' or 'O'"
 
     system["thermostat"] = thermostat_state
     system["vel"] = restart_data.get("vel", initial_vel).astype(fprec)
@@ -310,6 +313,7 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
                 "in,i...->n...", eigmat, forces.reshape(nbeads, nat, 3)
             ) * (1.0 / nbeads**0.5)
 
+        
         system = {
             **system,
             "epot": jnp.mean(epot),
@@ -319,6 +323,9 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
 
         ### KINETIC ENERGY
         v = system["vel"]
+        if ekin_instant == "B":
+            v = v + 0.5 * dtm * forces
+                    
         if nbeads is None:
             corr_kin = system["thermostat"].get("corr_kin", 1.0)
             # ek = 0.5 * jnp.sum(mass[:, None] * v**2) / state_th.get("corr_kin", 1.0)
