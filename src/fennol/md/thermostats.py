@@ -39,11 +39,12 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
     kT = system_data.get("kT", None)
     nbeads = system_data.get("nbeads", None)
     mass = system_data["mass"]
-    gamma = simulation_parameters.get("gamma", 1.0 / us.THZ)
+    gamma0 = simulation_parameters.get("gamma", 1.0 / us.THZ)
     """@keyword[fennol_md] gamma
     Friction coefficient for Langevin thermostat.
     Default: 1.0 ps^-1
     """
+    gamma = gamma0
     if gamma <= 0.0:
         gamma = 0.0
     species = system_data["species"]
@@ -58,7 +59,7 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
 
     if thermostat_name in ["LGV", "LANGEVIN", "FFLGV"]:
         default_ekin_instant = "O"
-        if gamma <= 1.e-5:
+        if gamma0 <= 1.e-5:
             default_ekin_instant = "B"
         assert rng_key is not None, "rng_key must be provided for QTB thermostat"
         assert kT is not None, "kT must be specified for QTB thermostat"
