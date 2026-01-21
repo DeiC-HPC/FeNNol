@@ -356,9 +356,9 @@ class GraphGenerator:
 
     def check_reallocate(self, state, inputs, parent_overflow=False):
         """check for overflow and reallocate nblist if necessary"""
-        overflow = parent_overflow or inputs[self.graph_key].get("overflow", False)
-        if not overflow:
-            return state, {}, inputs, False
+        # overflow = parent_overflow or inputs[self.graph_key].get("overflow", False)
+        # if not overflow:
+        #     return state, {}, inputs, False
 
         add_margin = inputs[self.graph_key].get("overflow", False)
         state, inputs, state_up = self(
@@ -897,9 +897,9 @@ class GraphFilter:
 
     def check_reallocate(self, state, inputs, parent_overflow=False):
         """check for overflow and reallocate nblist if necessary"""
-        overflow = parent_overflow or inputs[self.graph_key].get("overflow", False)
-        if not overflow:
-            return state, {}, inputs, False
+        # overflow = parent_overflow or inputs[self.graph_key].get("overflow", False)
+        # if not overflow:
+        #     return state, {}, inputs, False
 
         add_margin = inputs[self.graph_key].get("overflow", False)
         state, inputs, state_up = self(
@@ -1184,9 +1184,9 @@ class GraphAngularExtension:
 
     def check_reallocate(self, state, inputs, parent_overflow=False):
         """check for overflow and reallocate nblist if necessary"""
-        overflow = parent_overflow or inputs[self.graph_key]["angle_overflow"]
-        if not overflow:
-            return state, {}, inputs, False
+        # overflow = parent_overflow or inputs[self.graph_key]["angle_overflow"]
+        # if not overflow:
+        #     return state, {}, inputs, False
 
         add_margin = inputs[self.graph_key]["angle_overflow"]
         state, inputs, state_up = self(
@@ -1332,6 +1332,8 @@ class SpeciesIndexer:
 
     output_key: str = "species_index"
     """Key for the output dictionary."""
+    graph_key: str = "species_index"
+    """Key for easier referencing. Just copies the output_key"""
     species_order: Optional[str] = None
     """Comma separated list of species in the order they should be indexed."""
     add_atoms: int = 0
@@ -1403,7 +1405,8 @@ class SpeciesIndexer:
         output = {
             **inputs,
             self.output_key: species_index,
-            self.output_key + "_overflow": False,
+            self.graph_key: species_index,
+            "overflow": False,
         }
 
         if return_state_update:
@@ -1412,11 +1415,11 @@ class SpeciesIndexer:
 
     def check_reallocate(self, state, inputs, parent_overflow=False):
         """check for overflow and reallocate nblist if necessary"""
-        overflow = parent_overflow or inputs[self.output_key + "_overflow"]
-        if not overflow:
-            return state, {}, inputs, False
+        # overflow = parent_overflow or inputs["overflow"]
+        # if not overflow:
+        #     return state, {}, inputs, False
 
-        add_margin = inputs[self.output_key + "_overflow"]
+        add_margin = inputs["overflow"]
         state, inputs, state_up = self(
             state, inputs, return_state_update=True, add_margin=add_margin
         )
@@ -1484,7 +1487,8 @@ class SpeciesIndexer:
         return {
             **inputs,
             self.output_key: species_index,
-            self.output_key + "_overflow": overflow,
+            self.graph_key: species_index,
+            "overflow": overflow,
         }
 
     @partial(jax.jit, static_argnums=(0,))
@@ -1504,6 +1508,8 @@ class BlockIndexer:
 
     output_key: str = "block_index"
     """Key for the output dictionary."""
+    graph_key: str = "block_index"
+    """Key for easier referencing."""
     add_atoms: int = 0
     """Additional atoms to add to the sizes."""
     add_atoms_margin: int = 10
@@ -1579,7 +1585,8 @@ class BlockIndexer:
         output = {
             **inputs,
             self.output_key: block_index,
-            self.output_key + "_overflow": False,
+            self.graph_key: block_index,
+            "overflow": False,
         }
 
         if return_state_update:
@@ -1588,11 +1595,11 @@ class BlockIndexer:
 
     def check_reallocate(self, state, inputs, parent_overflow=False):
         """check for overflow and reallocate nblist if necessary"""
-        overflow = parent_overflow or inputs[self.output_key + "_overflow"]
-        if not overflow:
-            return state, {}, inputs, False
+        # overflow = parent_overflow or inputs["overflow"]
+        # if not overflow:
+        #     return state, {}, inputs, False
 
-        add_margin = inputs[self.output_key + "_overflow"]
+        add_margin = inputs["overflow"]
         state, inputs, state_up = self(
             state, inputs, return_state_update=True, add_margin=add_margin
         )
@@ -1645,7 +1652,8 @@ class BlockIndexer:
         return {
             **inputs,
             self.output_key: block_index,
-            self.output_key + "_overflow": overflow,
+            self.graph_key: block_index,
+            "overflow": overflow,
         }
 
     @partial(jax.jit, static_argnums=(0,))
@@ -1864,9 +1872,12 @@ class PreprocessingChain:
         layer_state = state["layers_state"]
         parent_overflow = False
         for i, layer in enumerate(self.layers):
-            s, s_up, inputs, parent_overflow = layer.check_reallocate(
-                layer_state[i], inputs, parent_overflow
-            )
+            current_overflow = inputs[layer.graph_key].get("overflow", False)
+            s = layer_state[i]
+            # state update only provided if there is an overflow
+            s_up = {}
+            if current_overflow | parent_overflow:
+                s, s_up, inputs, parent_overflow = layer.check_reallocate(s, inputs, parent_overflow)
             new_state.append(s)
             state_up.append(s_up)
 
