@@ -1931,12 +1931,44 @@ class PreprocessingChain:
         state_up = []
         layer_state = state["layers_state"]
         parent_overflow = False
-        for i,layer in enumerate(self.layers):
+        for i, layer in enumerate(self.layers):
             s, s_up, inputs, parent_overflow = layer.check_reallocate(
                 layer_state[i], inputs, parent_overflow
             )
             new_state.append(s)
             state_up.append(s_up)
+
+        if not parent_overflow:
+            return state, {}, inputs, False
+        return (
+            FrozenDict({**state, "layers_state": tuple(new_state)}),
+            state_up,
+            inputs,
+            True,
+        )
+
+    def do_layer_realloc(self, layer, s, inputs, parent_overflow, ):
+        return layer.check_reallocate(s, inputs, parent_overflow)
+        return s, s_up, inputs, parent_overflow
+
+    # @jax.jit(static_argnames=("self", "state", "inputs",))
+    def check_reallocate_new(self, state, inputs):
+        new_state = []
+        state_up = []
+        parent_overflow = False
+        layer_state = state["layers_state"]
+        for i,layer in enumerate(self.layers):
+            s = layer_state[i]
+            if hasattr(layer, "graph_key"):
+                current_overflow = inputs[layer.graph_key].get("overflow", False)
+            else:
+                current_overflow = inputs.get(layer.output_key + "overflow", False)
+
+            # do the actual reallocation
+            if current_overflow | parent_overflow:
+                s, s_up, inputs, parent_overflow = self.do_layer_realloc(layer, s, inputs, parent_overflow)
+                state_up.append(s_up)
+                new_state.append(s)
 
         if not parent_overflow:
             return state, {}, inputs, False

@@ -5,6 +5,8 @@ import os
 import numpy as np
 import jax
 import jax.numpy as jnp
+from functools import partial
+from flax.core.frozen_dict import FrozenDict
 
 from .thermostats import get_thermostat
 from .barostats import get_barostat
@@ -554,7 +556,7 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
     dyn_state["nblist_countdown"] = 0
     dyn_state["print_skin_activation"] = nblist_warmup > 0
 
-    def update_graphs(istep, dyn_state, system, conformation, force_preprocess=False):
+    def update_graphs_verbose(istep, dyn_state, system, conformation, force_preprocess=False):
         nblist_countdown = dyn_state["nblist_countdown"]
         if nblist_countdown <= 0 or force_preprocess or (istep < nblist_warmup):
             ### FULL NBLIST REBUILD
@@ -607,6 +609,76 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
 
         return conformation, dyn_state
 
+    @partial(jax.jit, static_argnames=("preproc_state",))
+    def update_graphs_nblist_rebuild(istep, dyn_state, preproc_state, system, conformation, nblist_countdown):
+        ### FULL NBLIST REBUILD
+        dyn_state["nblist_countdown"] = nblist_stride - 1
+        conformation = update_conformation(conformation, system)
+        conformation = model.preprocessing.process(preproc_state, conformation)
+
+        # dyn_state = {**dyn_state, "preproc_state": preproc_state_new}
+
+        if do_ir_spectrum and model_ir is not None:
+            conformation_ir = model_ir.preprocessing.process(
+                dyn_state["preproc_state_ir"],
+                update_conformation_ir(dyn_state["conformation_ir"], system),
+            )
+            # (
+            #     dyn_state["preproc_state_ir"],
+            #     _,
+            #     dyn_state["conformation_ir"],
+            #     overflow,
+            # ) = model_ir.preprocessing.check_reallocate(
+            #     dyn_state["preproc_state_ir"], conformation_ir
+            # )
+        return conformation#, preproc_state_new
+
+    def update_graphs_skin_update(istep, dyn_state, preproc_state, system, conformation, nblist_countdown):
+        ### SKIN UPDATE
+        if dyn_state["print_skin_activation"]:
+            if nblist_verbose:
+                print(
+                    "step",
+                    istep,
+                    ", end of nblist warmup phase => activating skin updates",
+                )
+            dyn_state["print_skin_activation"] = False
+
+        dyn_state["nblist_countdown"] = nblist_countdown - 1
+        conformation = model.preprocessing.update_skin(
+            update_conformation(conformation, system)
+        )
+        if do_ir_spectrum and model_ir is not None:
+            dyn_state["conformation_ir"] = model_ir.preprocessing.update_skin(
+                update_conformation_ir(dyn_state["conformation_ir"], system)
+            )
+        return conformation, dyn_state
+
+    #@jax.jit(static_argnames=("preproc_state", "force_preprocess", "istep"))
+    def update_graphs(istep, dyn_state, preproc_state, system, conformation, force_preprocess=False):
+        nblist_countdown = dyn_state["nblist_countdown"]
+        if nblist_countdown <= 0 or force_preprocess or (istep < nblist_warmup):
+            conformation = update_graphs_nblist_rebuild(istep, dyn_state, preproc_state, system, conformation, nblist_countdown)
+            preproc_state_new, _, conformation, overflow = (
+                model.preprocessing.check_reallocate(preproc_state, conformation)
+            )
+            return conformation, preproc_state_new
+        else:
+            return update_graphs_skin_update(istep, dyn_state, preproc_state, system, conformation, nblist_countdown)
+
+        # jax.lax.cond seems to be causing issues
+        # test = nblist_countdown <= 0 | force_preprocess | (istep < nblist_warmup)
+        # return jax.lax.cond( test , update_graphs_nblist_rebuild, update_graphs_skin_update, istep, dyn_state, preproc_state, system, conformation, nblist_countdown)
+
+
+        # return conformation, dyn_state
+
+    def strip_tracers(pytree):
+        return jax.tree_util.tree_map(
+            lambda x: x.item() if isinstance(x, jax.Array) else x,
+            pytree,
+        )
+
     ################################################
     ### DEFINE STEP FUNCTION
     def step(istep, dyn_state, system, conformation, force_preprocess=False):
@@ -619,10 +691,15 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
         ### INTEGRATE EQUATIONS OF MOTION
         system = integrate(system)
 
+        # convert to hashable
+        static_preproc = FrozenDict(strip_tracers(dyn_state["preproc_state"]))
+        # remove thermostat_name from state as its a string
+        therm_name = dyn_state.pop("thermostat_name")
         ### UPDATE CONFORMATION AND GRAPHS
-        conformation, dyn_state = update_graphs(
-            istep, dyn_state, system, conformation, force_preprocess
-        )
+        # conformation, preproc_state = update_graphs_verbose(istep, dyn_state, system, conformation, force_preprocess)
+        conformation, preproc_state = update_graphs(istep, dyn_state, static_preproc, system, conformation, force_preprocess)
+        dyn_state["thermostat_name"] = therm_name
+        dyn_state["preproc_state"] = preproc_state
 
         ## COMPUTE FORCES AND OBSERVABLES
         system, out = update_observables(system, conformation)
