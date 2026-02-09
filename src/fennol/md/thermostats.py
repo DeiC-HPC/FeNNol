@@ -177,6 +177,9 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
             return a1 * vel, state
 
     elif thermostat_name in ["NVE", "NONE"]:
+        if kT is None:
+            kT = 0.
+        
         if nbeads is None:
             vel = (
                 jax.random.normal(rng_key, (mass.shape[0], 3), dtype=fprec)
@@ -355,6 +358,16 @@ def get_thermostat(simulation_parameters, dt, system_data, fprec, rng_key=None, 
 
     else:
         raise ValueError(f"Unknown thermostat {thermostat_name}")
+    
+    # remove center of mass velocity
+    massprop = system_data["mass_Da"]/system_data["totmass_Da"]
+    if nbeads is None:
+        vel = vel.reshape(-1,system_data["nat"], 3)
+        vcom = jnp.sum(vel * massprop[None,:, None], axis=1, keepdims=True)
+        vel = (vel - vcom).reshape(-1,3)
+    else:
+        vcom = jnp.sum(vel[0]*massprop[:,None], axis=0, keepdims=True)
+        vel = vel.at[0].set(vel[0] - vcom)
 
     ekin_instant = str(simulation_parameters.get("ekin_instant", default_ekin_instant)).upper()
     """@keyword[fennol_md] ekin_instant

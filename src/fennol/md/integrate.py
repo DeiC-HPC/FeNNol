@@ -102,6 +102,17 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
     if nbeads is not None:
         nreplicas = nbeads
         dtm = dtm[None, :, :]
+    
+    fix_com = simulation_parameters.get("fix_com", False)
+    if fix_com:
+        massprop = system_data["mass_Da"]/system_data["totmass_Da"]
+        print("# Reference frame fixed to center of mass")
+        x = conformation["coordinates"].reshape(-1, nat, 3)
+        if nbeads is None:
+            xcom = jnp.sum(x*massprop[None,:,None], axis=1, keepdims=True)
+        else:
+            xcom = jnp.sum(x*massprop[None,:,None], axis=(0,1), keepdims=True)/nbeads
+        conformation["coordinates"] = (x - xcom).reshape(-1, 3)
 
     ### INITIALIZE DYNAMICS STATE
     system = {"coordinates": conformation["coordinates"]}
@@ -133,6 +144,21 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
     assert ekin_instant in ["B", "O"], "ekin_instant must be 'B' or 'O'"
 
     system["thermostat"] = thermostat_state
+
+    if "initial_velocities" in simulation_parameters:
+        initial_vel_file = simulation_parameters["initial_velocities"]
+        print(f"# Using initial velocities from {initial_vel_file}")
+        v0 = jnp.array(np.loadtxt(initial_vel_file).reshape(-1,nat, 3).astype(fprec))
+        if v0.shape[0] == 1:
+            if nbeads is None:
+                v0 = v0.repeat(nreplicas, axis=0)
+            else:
+                v0 = initial_vel.at[0].set(v0[0])
+        assert v0.shape == (nreplicas, nat, 3), f"initial_velocities file must have shape (nat, 3) or (nreplicas, nat, 3), but got {v0.shape}"
+        initial_vel = v0
+        if nbeads is None:
+            initial_vel = initial_vel.reshape(-1, 3)
+
     system["vel"] = restart_data.get("vel", initial_vel).astype(fprec)
 
     ### PBC
@@ -293,6 +319,15 @@ def initialize_dynamics(simulation_parameters, fprec, rng_key):
         x, v = integrate_A_half(x, v)
         x, v, system = thermo_update(x, v, system)
         x, v = integrate_A_half(x, v)
+
+        if fix_com:
+            if nbeads is None:
+                x = x.reshape(-1, nat, 3)
+                xcom = jnp.sum(x*massprop[None,:,None], axis=1, keepdims=True)
+                x = (x - xcom).reshape(-1, 3)
+            else:
+                xcom = jnp.sum(x[0]*massprop[:,None], axis=0, keepdims=True)
+                x = x.at[0].set(x[0] - xcom)
 
         return {**system, "coordinates": x, "vel": v}
 
