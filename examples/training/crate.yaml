@@ -12,7 +12,6 @@ training:
   ema_decay: 0.99
   default_loss_type: mse
 
-  energy_terms: [energy]
   # energy_terms: [energy, repulsion]
   # print_model: True
   # frozen: [repulsion]
@@ -28,17 +27,19 @@ training:
       key: total_energy
       ref: formation_energy
       weight: 1.e-3
-      unit: kcalpermol
+      energy_unit: kcalpermol
       threshold: 10.
     f:
       key: forces
       ref: forces
       weight: 1.
-      unit: kcalpermol
+      energy_unit: kcalpermol
       threshold: 3.
 
 model:
   cutoff: 5.1
+  energy_terms: [energy]
+  energy_unit: ev
   preprocessing:
     graph:
       switch_params:

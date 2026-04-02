@@ -15,7 +15,6 @@ training:
 
   #weight_decay: 1.e-4 # weight decay for the optimizer (L2 regularization)
   #decay_targets: [energy] # list of modules and/or paramters for which the weight decay is applied
-  energy_terms: [energy,repulsion] # output keys used to form the total energy
 
   ## learning rate schedule (default is a cosine one-cycle schedule)
   init_lr: 1.e-3 # initial learning rate
@@ -28,15 +27,17 @@ training:
       key: total_energy # key of the output used for the loss
       ref: formation_energy # key of the reference from the dataset
       weight: 1.e-3 # weight of this term in the total loss
-      unit: kcalpermol # unit of the reference -> model will be trained in atomic units so ref will be converted (but metrics will be shown in the unit of the dataset)
+      energy_unit: kcalpermol # energy unit of the reference -> model will be trained in internal units so ref will be converted (but metrics will be shown in the unit of the dataset)
     f:
       key: forces
       ref: forces
       weight: 1.
-      unit: kcalpermol
+      energy_unit: kcalpermol
 
 model:
   cutoff: 5.1 # cutoff for the default graph
+  energy_terms: [energy,repulsion] # output keys used to form the total energy
+  energy_unit: ev # internal energy unit of the model
 
   ## list of preprocessing modules -> graph construction/filtering/extensions
   preprocessing:

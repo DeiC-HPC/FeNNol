@@ -3,9 +3,9 @@ This directory contains examples for running molecular dynamics simulations with
 
 You can navigate to any repository and run the following command to start a simulation:
 ```bash
-fennol_md input.fnl
+fennol_md input.yaml
 ```
-The file `input.fnl` contains the full configuration for the molecular dynamics simulation.
+The file `input.yaml` contains the full configuration for the molecular dynamics simulation.
 
 List of examples:
 - `aspirin`: gas-phase aspirin (no periodic boundary conditions).
