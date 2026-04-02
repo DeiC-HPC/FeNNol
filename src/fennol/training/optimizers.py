@@ -20,7 +20,6 @@ import re
 
 from optax._src import base
 from optax._src import wrappers
-import chex
 from optax import tree_utils as otu
 
 
