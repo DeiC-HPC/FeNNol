@@ -133,14 +133,14 @@ class GraphGenerator:
                 vec = coords[p2] - coords[p1]
                 if cells.shape[0] == 1:
                     vecpbc = np.dot(vec, reciprocal_cells[0])
-                    pbc_shifts = -np.round(vecpbc)
+                    pbc_shifts = -np.round(vecpbc).astype(np.int32)
                     vec = vec + np.dot(pbc_shifts, cells[0])
                 else:
                     batch_index_vec = batch_index[p1]
                     vecpbc = np.einsum(
                         "aj,aji->ai", vec, reciprocal_cells[batch_index_vec]
                     )
-                    pbc_shifts = -np.round(vecpbc)
+                    pbc_shifts = -np.round(vecpbc).astype(np.int32)
                     vec = vec + np.einsum(
                         "aj,aji->ai", pbc_shifts, cells[batch_index_vec]
                     )
@@ -149,13 +149,13 @@ class GraphGenerator:
                 ## put all atoms in central box
                 if cells.shape[0] == 1:
                     coords_pbc = np.dot(coords, reciprocal_cells[0])
-                    at_shifts = -np.floor(coords_pbc)
+                    at_shifts = -np.floor(coords_pbc).astype(np.int32)
                     coords_pbc = coords + np.dot(at_shifts, cells[0])
                 else:
                     coords_pbc = np.einsum(
                         "aj,aji->ai", coords, reciprocal_cells[batch_index]
                     )
-                    at_shifts = -np.floor(coords_pbc)
+                    at_shifts = -np.floor(coords_pbc).astype(np.int32)
                     coords_pbc = coords + np.einsum(
                         "aj,aji->ai", at_shifts, cells[batch_index]
                     )
@@ -180,7 +180,7 @@ class GraphGenerator:
                 ## build all possible shifts
                 cell_shift_pbc = np.array(
                     np.meshgrid(*[np.arange(-n, n + 1) for n in num_repeats]),
-                    dtype=cells.dtype,
+                    dtype=np.int32,
                 ).T.reshape(-1, 3)
                 ## shift applied to vectors
                 if cells.shape[0] == 1:
@@ -288,7 +288,7 @@ class GraphGenerator:
         d12 = d12_
 
         if apply_pbc:
-            pbc_shifts_ = np.zeros((max_pairs, 3))
+            pbc_shifts_ = np.zeros((max_pairs, 3), dtype=np.int32)
             pbc_shifts_[:npairs] = pbc_shifts[idx]
             pbc_shifts = pbc_shifts_
             if not minimage:
@@ -314,7 +314,7 @@ class GraphGenerator:
             edge_src_noself = np.full(max_noself, nat, dtype=np.int32)
             edge_dst_noself = np.full(max_noself, nat, dtype=np.int32)
             d12_noself = np.full(max_noself, cutoff_skin**2)
-            pbc_shifts_noself = np.zeros((max_noself, 3))
+            pbc_shifts_noself = np.zeros((max_noself, 3), dtype=np.int32)
 
             edge_dst_noself[:npairs_noself] = edge_dst[idx_noself]
             edge_src_noself[:npairs_noself] = edge_src[idx_noself]
@@ -354,7 +354,7 @@ class GraphGenerator:
             d12_[:npairs_skin] = d12[idx]
             d12 = d12_
             if apply_pbc:
-                pbc_shifts = np.full((max_pairs_skin, 3), 0.0)
+                pbc_shifts = np.zeros((max_pairs_skin, 3), dtype=np.int32)
                 pbc_shifts[:npairs_skin] = pbc_shifts_skin[idx]
 
         graph = inputs.get(self.graph_key, {})
@@ -450,9 +450,9 @@ class GraphGenerator:
             def compute_pbc(vec, reciprocal_cell, cell, mode="round"):
                 vecpbc = jnp.dot(vec, reciprocal_cell)
                 if mode == "round":
-                    pbc_shifts = -jnp.round(vecpbc)
+                    pbc_shifts = -jnp.round(vecpbc).astype(jnp.int32)
                 elif mode == "floor":
-                    pbc_shifts = -jnp.floor(vecpbc)
+                    pbc_shifts = -jnp.floor(vecpbc).astype(jnp.int32)
                 else:
                     raise NotImplementedError(f"Unknown mode {mode} for compute_pbc.")
                 return vec + jnp.dot(pbc_shifts, cell), pbc_shifts
@@ -504,7 +504,7 @@ class GraphGenerator:
                 cell_shift_pbc = jnp.asarray(
                     np.array(
                         np.meshgrid(*[np.arange(-n, n + 1) for n in num_repeats]),
-                        dtype=cells.dtype,
+                        dtype=np.int32,
                     ).T.reshape(-1, 3)
                 )
 
@@ -551,7 +551,7 @@ class GraphGenerator:
                         (shiftz, 0),
                     )
                     dvec = jnp.stack((dvecx,dvecy,dvecz),axis=-1)
-                    cell_shift_pbc = jnp.stack((shiftx,shifty,shiftz),axis=-1)
+                    cell_shift_pbc = jnp.stack((shiftx,shifty,shiftz),axis=-1, dtype=jnp.int32)
                     overflow_repeats = overflow_repeats | (nshifts > max_shifts)
 
                     ## get batch shift in the dvec_filter array
@@ -606,15 +606,15 @@ class GraphGenerator:
         )
         if "cells" in inputs:
             pbc_shifts = (
-                jnp.full((max_pairs, 3), 0.0, dtype=pbc_shifts.dtype)
+                jnp.zeros((max_pairs, 3), dtype=pbc_shifts.dtype)
                 .at[scatter_idx]
                 .set(pbc_shifts, mode="drop")
             )
             if not minimage:
                 pbc_shifts = (
                     pbc_shifts
-                    + at_shifts.at[edge_dst].get(fill_value=0.0)
-                    - at_shifts.at[edge_src].get(fill_value=0.0)
+                    + at_shifts.at[edge_dst].get(fill_value=0)
+                    - at_shifts.at[edge_src].get(fill_value=0)
                 )
 
         ## check for overflow
@@ -668,7 +668,7 @@ class GraphGenerator:
             )
             if "cells" in inputs:
                 pbc_shifts = (
-                    jnp.full((max_pairs_skin, 3), 0.0, dtype=pbc_shifts.dtype)
+                    jnp.zeros((max_pairs_skin, 3), dtype=pbc_shifts.dtype)
                     .at[scatter_idx]
                     .set(pbc_shifts, mode="drop")
                 )
@@ -730,7 +730,7 @@ class GraphGenerator:
         )
         if "cells" in inputs:
             pbc_shifts = (
-                jnp.full((max_pairs, 3), 0.0, dtype=pbc_shifts_skin.dtype)
+                jnp.zeros((max_pairs, 3), dtype=pbc_shifts_skin.dtype)
                 .at[scatter_idx]
                 .set(pbc_shifts_skin)
             )
