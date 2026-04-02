@@ -34,7 +34,7 @@ class FENNIXCalculator(ase.calculators.calculator.Calculator):
     def __init__(
         self,
         model: Union[str, FENNIX],
-        gpu_preprocessing: bool = False,
+        gpu_preprocessing: bool = True,
         atoms: Optional[ase.Atoms] = None,
         verbose: bool = False,
         energy_terms: Optional[Sequence[str]] = None,
