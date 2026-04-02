@@ -658,7 +658,7 @@ class SwitchFunction(nn.Module):
                 ), "cutoff must be specified if no graph is given"
                 # edge_mask = distances < self.cutoff
                 cutoff = self.cutoff
-
+                
         if self.switch_start > 1.0e-5:
             assert (
                 self.switch_start < 1.0
@@ -696,6 +696,15 @@ class SwitchFunction(nn.Module):
             r2 = x**2
             c2 = end**2
             switch = jnp.exp(-p * r2 / (c2 - r2))
+            
+        elif switch_type == "bump":
+            assert self.switch_start < 1.0e-5, "switch_start is not supported for bump switch. Use the 'p' parameter to control the width of the switch instead."
+            p = self.p if self.p is not None else 0.5
+            scaled = (x - (end - p))/p
+            mask_smaller = scaled <=0
+            mask_active = jnp.logical_and(scaled > 0, scaled < 1)
+            scaled = jnp.where(mask_active, scaled, 0.1)
+            switch = mask_smaller + mask_active * 0.5 * (1. + jnp.tanh(1./jnp.tan(scaled * jnp.pi))) 
         
         elif switch_type == "hard":
             switch = jnp.where(distances < cutoff, 1.0, 0.0)
