@@ -2,13 +2,71 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/FeNNol?link=https%3A%2F%2Fpypi.org%2Fproject%2FFeNNol%2F)](https://pypi.org/project/FeNNol/)
 [![DOI:10.1063/5.0217688](https://zenodo.org/badge/DOI/10.1063/5.0217688.svg)](https://doi.org/10.1063/5.0217688) 
 
-
 ## FeNNol: Force-field-enhanced Neural Networks optimized library
-FeNNol is a library for building, training and running neural network potentials for molecular simulations. It is based on the JAX library and is designed to be fast and flexible.
+**FeNNol** is a library for building, training and running neural network potentials for molecular simulations. It is based on the JAX library and is designed to be fast and flexible.
 
 FeNNol's documentation is available [here](https://fennol-tools.github.io/FeNNol/) and the article describing the library at https://doi.org/10.1063/5.0217688
 
 Active Learning tutorial in this [Colab notebook](https://colab.research.google.com/drive/1Z3G_jVSF60_nbDdJwbgyLdJBHTYuQ5nL?usp=sharing)
+
+### Table of Contents
+
+- [Pre-trained models](#pre-trained-models)
+- [Installation](#installation)
+    - [From PyPI](#from-pypi)
+    - [Latest version from Github repo](#latest-version-from-github-repo)
+    - [Optional dependencies](#optional-dependencies)
+- [Examples](#examples)
+- [Citation](#citation)
+- [License](#license)
+
+## Pre-trained models
+Pre-trained models can be downloaded from the [Pre-trained Models Collection](https://github.com/FeNNol-tools/FeNNol-PMC).
+Available models include:
+- [FeNNix-Bio1](https://github.com/FeNNol-tools/FeNNol-PMC/tree/main/FENNIX-BIO1)
+- [ANI1x](https://github.com/FeNNol-tools/FeNNol-PMC/tree/main/ANI/ANI1X), [ANI1ccx](https://github.com/FeNNol-tools/FeNNol-PMC/tree/main/ANI/ANI1CCX), [ANI2x](https://github.com/FeNNol-tools/FeNNol-PMC/tree/main/ANI/ANI2X)
+- [MACE-OFF23](https://github.com/FeNNol-tools/FeNNol-PMC/tree/main/MACE-OFF23)
+- [MACE-MP](https://github.com/FeNNol-tools/FeNNol-PMC/tree/main/MACE-MP)
+
+After downloading the model (for example [`fennix-bio1S.fnx`](https://github.com/FeNNol-tools/FeNNol-PMC/raw/refs/heads/main/FENNIX-BIO1/fennix-bio1S.fnx)), you can load it and start predicting energies and forces with:
+```python
+import fennol
+import numpy as np
+
+model = fennol.load("fennix-bio1S.fnx")
+species = np.array([8, 1, 1])
+coordinates = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+
+energy, forces, output_dict = model.energy_and_forces(species=species, coordinates=coordinates, unit="ev")
+print("Energy:", energy,"ev")
+print("Forces:", forces,"ev/Å")
+```
+
+Alternatively, you can use the provided ASE calculator and run a short molecular dynamics simulation:
+```python
+from fennol.ase import FENNIXCalculator
+from ase import Atoms
+from ase.md.verlet import VelocityVerlet    
+import ase.units as units
+
+atoms = Atoms(symbols=["O", "H", "H"], positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+calculator = FENNIXCalculator(model="fennix-bio1S.fnx", gpu_preprocessing=True)
+atoms.calc = calculator
+energy = atoms.get_potential_energy()
+forces = atoms.get_forces()
+print("Energy:", energy,"ev")
+print("Forces:", forces,"ev/Å")
+
+dyn = VelocityVerlet(atoms, timestep=1.0*units.fs) 
+print("Starting MD simulation. ")
+for step in range(10):
+    dyn.run(10)
+    print(f"Step {10*(step+1)}, Potential energy: {atoms.get_potential_energy()} ev")
+```
+
+**For better performance, we recommend using `fennol_md`, FeNNol's native MD engine.** (see the [`examples/md`](https://github.com/fennol-tools/FeNNol/tree/main/examples/md) directory for instructions and example input files)
+
+
 
 ## Installation
 ### From PyPI
@@ -61,6 +119,7 @@ pip install cffi pycuda
 To learn how to train a FeNNol model, you can check the examples in the [`examples/training`](https://github.com/fennol-tools/FeNNol/tree/main/examples/training) directory. The `README.md` file in that directory contains instructions on how to train a model on the aspirin revMD17 dataset.
 
 To learn how to run molecular dynamics simulations with FeNNol models, you can check the examples in the [`examples/md`](https://github.com/fennol-tools/FeNNol/tree/main/examples/md) directory. The `README.md` file in that directory contains instructions on how to run simulations with the provided ANI-2x model.
+
 
 
 ## Citation
