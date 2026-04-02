@@ -103,7 +103,12 @@ class GraphGenerator:
         cutoff_skin = self.cutoff + state.get("nblist_skin", 0.0)
 
         ### compute indices of all pairs
-        p1, p2 = np.triu_indices(true_max_nat, 1)
+        apply_pbc = "cells" in inputs
+        minimage = "minimum_image" in inputs.get("flags", {})
+        include_self_image = apply_pbc and not minimage
+
+        shift = 0 if include_self_image else 1
+        p1, p2 = np.triu_indices(true_max_nat, shift)
         p1, p2 = p1.astype(np.int32), p2.astype(np.int32)
         pbc_shifts = None
         if natoms.shape[0] > 1:
@@ -117,14 +122,12 @@ class GraphGenerator:
             p1 = np.where(mask_p12, (p1[None, :] + shift[:, None]).flatten(), -1)
             p2 = np.where(mask_p12, (p2[None, :] + shift[:, None]).flatten(), -1)
 
-        apply_pbc = "cells" in inputs
         if not apply_pbc:
             ### NO PBC
             vec = coords[p2] - coords[p1]
         else:
             cells = np.array(inputs["cells"], dtype=np.float32)
             reciprocal_cells = np.array(inputs["reciprocal_cells"], dtype=np.float32)
-            minimage = "minimum_image" in inputs.get("flags", {})
             if minimage:
                 ## MINIMUM IMAGE CONVENTION
                 vec = coords[p2] - coords[p1]
@@ -264,6 +267,9 @@ class GraphGenerator:
         ## filter pairs
         max_pairs = state.get("npairs", 1)
         mask = d12 < cutoff_skin**2
+        if include_self_image:
+            mask_self = np.logical_or(p1 != p2, d12 > 1.e-3)
+            mask = np.logical_and(mask, mask_self)
         idx = np.nonzero(mask)[0]
         npairs = idx.shape[0]
         if npairs > max_pairs or add_margin:
@@ -292,6 +298,40 @@ class GraphGenerator:
                     - at_shifts[edge_src[:npairs]]
                 )
 
+
+        ## symmetrize
+        if include_self_image:
+            mask_noself = edge_src != edge_dst
+            idx_noself = np.nonzero(mask_noself)[0]
+            npairs_noself = idx_noself.shape[0]
+            max_noself = state.get("npairs_noself", 1)
+            if npairs_noself > max_noself or add_margin:
+                prev_max_noself = max_noself
+                max_noself = int(mult_size * max(npairs_noself, max_noself)) + 1
+                state_up["npairs_noself"] = (max_noself, prev_max_noself)
+                new_state["npairs_noself"] = max_noself
+
+            edge_src_noself = np.full(max_noself, nat, dtype=np.int32)
+            edge_dst_noself = np.full(max_noself, nat, dtype=np.int32)
+            d12_noself = np.full(max_noself, cutoff_skin**2)
+            pbc_shifts_noself = np.zeros((max_noself, 3))
+
+            edge_dst_noself[:npairs_noself] = edge_dst[idx_noself]
+            edge_src_noself[:npairs_noself] = edge_src[idx_noself]
+            d12_noself[:npairs_noself] = d12[idx_noself]
+            pbc_shifts_noself[:npairs_noself] = pbc_shifts[idx_noself]
+            edge_src = np.concatenate((edge_src, edge_dst_noself))
+            edge_dst = np.concatenate((edge_dst, edge_src_noself))
+            d12 = np.concatenate((d12, d12_noself))
+            pbc_shifts = np.concatenate((pbc_shifts, -pbc_shifts_noself))
+        else:
+            edge_src, edge_dst = np.concatenate((edge_src, edge_dst)), np.concatenate(
+                (edge_dst, edge_src)
+            )
+            d12 = np.concatenate((d12, d12))
+            if apply_pbc:
+                pbc_shifts = np.concatenate((pbc_shifts, -pbc_shifts))
+
         if "nblist_skin" in state:
             edge_src_skin = edge_src
             edge_dst_skin = edge_dst
@@ -316,14 +356,6 @@ class GraphGenerator:
             if apply_pbc:
                 pbc_shifts = np.full((max_pairs_skin, 3), 0.0)
                 pbc_shifts[:npairs_skin] = pbc_shifts_skin[idx]
-
-        ## symmetrize
-        edge_src, edge_dst = np.concatenate((edge_src, edge_dst)), np.concatenate(
-            (edge_dst, edge_src)
-        )
-        d12 = np.concatenate((d12, d12))
-        if apply_pbc:
-            pbc_shifts = np.concatenate((pbc_shifts, -pbc_shifts))
 
         graph = inputs.get(self.graph_key, {})
         graph_out = {
@@ -386,7 +418,12 @@ class GraphGenerator:
         cutoff_skin = self.cutoff + state.get("nblist_skin", 0.0)
 
         ### compute indices of all pairs
-        p1, p2 = np.triu_indices(max_nat, 1)
+        apply_pbc = "cells" in inputs
+        minimage = "minimum_image" in inputs.get("flags", {})
+        include_self_image = apply_pbc and not minimage
+
+        shift = 0 if include_self_image else 1
+        p1, p2 = np.triu_indices(max_nat, shift)
         p1, p2 = p1.astype(np.int32), p2.astype(np.int32)
         pbc_shifts = None
         if natoms.shape[0] > 1:
@@ -557,6 +594,9 @@ class GraphGenerator:
         ## filter pairs
         max_pairs = state.get("npairs", 1)
         mask = d12 < cutoff_skin**2
+        if include_self_image:
+            mask_self = jnp.logical_or(p1 != p2, d12 > 1.e-3)
+            mask = jnp.logical_and(mask, mask_self)
         (edge_src, edge_dst, d12), scatter_idx, npairs = mask_filter_1d(
             mask,
             max_pairs,
@@ -586,6 +626,31 @@ class GraphGenerator:
         overflow_at = true_max_nat > max_nat
         overflow = overflow_count | overflow_at | overflow_repeats
 
+        ## symmetrize
+        if include_self_image:
+            mask_noself = edge_src != edge_dst
+            max_noself = state.get("npairs_noself", 1)
+            (edge_src_noself, edge_dst_noself, d12_noself, pbc_shifts_noself), scatter_idx, npairs_noself = mask_filter_1d(
+                mask_noself,
+                max_noself,
+                (edge_src, coords.shape[0]),
+                (edge_dst, coords.shape[0]),
+                (d12, cutoff_skin**2),
+                (pbc_shifts, jnp.zeros((3,), dtype=pbc_shifts.dtype)),
+            )
+            overflow = overflow | (npairs_noself > max_noself)
+            edge_src = jnp.concatenate((edge_src, edge_dst_noself))
+            edge_dst = jnp.concatenate((edge_dst, edge_src_noself))
+            d12 = jnp.concatenate((d12, d12_noself))
+            pbc_shifts = jnp.concatenate((pbc_shifts, -pbc_shifts_noself))
+        else:
+            edge_src, edge_dst = jnp.concatenate((edge_src, edge_dst)), jnp.concatenate(
+                (edge_dst, edge_src)
+            )
+            d12 = jnp.concatenate((d12, d12))
+            if "cells" in inputs:
+                pbc_shifts = jnp.concatenate((pbc_shifts, -pbc_shifts))
+
         if "nblist_skin" in state:
             # edge_mask_skin = edge_mask
             edge_src_skin = edge_src
@@ -608,14 +673,6 @@ class GraphGenerator:
                     .set(pbc_shifts, mode="drop")
                 )
             overflow = overflow | (npairs_skin > max_pairs_skin)
-
-        ## symmetrize
-        edge_src, edge_dst = jnp.concatenate((edge_src, edge_dst)), jnp.concatenate(
-            (edge_dst, edge_src)
-        )
-        d12 = jnp.concatenate((d12, d12))
-        if "cells" in inputs:
-            pbc_shifts = jnp.concatenate((pbc_shifts, -pbc_shifts))
 
         graph = inputs[self.graph_key] if self.graph_key in inputs else {}
         graph_out = {
@@ -663,7 +720,7 @@ class GraphGenerator:
         nat = coords.shape[0]
         d12 = jnp.sum(vec**2, axis=-1)
         mask = d12 < self.cutoff**2
-        max_pairs = graph["edge_src"].shape[0] // 2
+        max_pairs = graph["edge_src"].shape[0]
         (edge_src, edge_dst, d12), scatter_idx, npairs = mask_filter_1d(
             mask,
             max_pairs,
@@ -681,13 +738,13 @@ class GraphGenerator:
         overflow = graph.get("overflow", False) | (npairs > max_pairs)
         graph_out = {
             **graph,
-            "edge_src": jnp.concatenate((edge_src, edge_dst)),
-            "edge_dst": jnp.concatenate((edge_dst, edge_src)),
-            "d12": jnp.concatenate((d12, d12)),
+            "edge_src": edge_src,
+            "edge_dst": edge_dst,
+            "d12": d12,
             "overflow": overflow,
         }
         if "cells" in inputs:
-            graph_out["pbc_shifts"] = jnp.concatenate((pbc_shifts, -pbc_shifts))
+            graph_out["pbc_shifts"] = pbc_shifts
 
         if self.k_space and "cells" in inputs:
             if "k_points" not in graph:
