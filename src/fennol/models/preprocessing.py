@@ -938,14 +938,18 @@ class GraphFilter:
             "d12": d12,
             "overflow": False,
         }
+        if "cells" in inputs:
+            pbc_shifts = np.zeros((max_pairs, 3), dtype=np.int32)
+            pbc_shifts[:npairs] = graph_in["pbc_shifts"][idx]
+            graph_out["pbc_shifts"] = pbc_shifts
 
-        if self.k_space and "cells" in inputs:
-            if "k_points" not in graph:
-                ks, _, _, bewald = get_reciprocal_space_parameters(
-                    inputs["reciprocal_cells"], self.cutoff, self.kmax, self.kthr
-                )
-            graph_out["k_points"] = ks
-            graph_out["b_ewald"] = bewald
+            if self.k_space:
+                if "k_points" not in graph:
+                    ks, _, _, bewald = get_reciprocal_space_parameters(
+                        inputs["reciprocal_cells"], self.cutoff, self.kmax, self.kthr
+                    )
+                graph_out["k_points"] = ks
+                graph_out["b_ewald"] = bewald
 
         output = {**inputs, self.graph_key: graph_out}
         if return_state_update:
@@ -986,7 +990,7 @@ class GraphFilter:
             d12 = jnp.where(mask, d12, self.cutoff**2)
         mask = d12 < self.cutoff**2
 
-        (edge_src, edge_dst, d12, filter_indices), _, npairs = mask_filter_1d(
+        (edge_src, edge_dst, d12, filter_indices), scatter_idx, npairs = mask_filter_1d(
             mask,
             max_pairs,
             (edge_src, nat),
@@ -1006,11 +1010,18 @@ class GraphFilter:
             "overflow": overflow,
         }
 
-        if self.k_space and "cells" in inputs:
-            if "k_points" not in graph:
-                raise NotImplementedError(
-                    "k_space generation not implemented on accelerator. Call the numpy routine (self.__call__) first."
-                )
+        if "cells" in inputs:
+            pbc_shifts = graph_in["pbc_shifts"]
+            pbc_shifts = (
+                jnp.zeros((max_pairs, 3), dtype=pbc_shifts.dtype)
+                .at[scatter_idx].set(pbc_shifts, mode="drop")
+            )
+            graph_out["pbc_shifts"] = pbc_shifts
+            if self.k_space:
+                if "k_points" not in graph:
+                    raise NotImplementedError(
+                        "k_space generation not implemented on accelerator. Call the numpy routine (self.__call__) first."
+                    )
 
         return {**inputs, self.graph_key: graph_out}
 
